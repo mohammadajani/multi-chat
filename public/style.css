@@ -1,0 +1,95 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #0e0e12;
+  color: #eaeaf0;
+  font-family: "Inter", "Segoe UI", sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  padding: 10px 16px;
+  border-bottom: 1px solid #26262f;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+header h1 {
+  font-size: 16px;
+  margin: 0;
+  opacity: 0.7;
+}
+
+#filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid #3a3a45;
+  background: #1a1a20;
+  color: #b0b0bd;
+  user-select: none;
+}
+
+.filter-chip.active {
+  background: #3a3aff33;
+  border-color: #6a6aff;
+  color: #fff;
+}
+
+#feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.msg {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.msg:hover { background: #1a1a20; }
+
+.tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  align-self: flex-start;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.tag.twitch { background: #9146ff33; color: #b18aff; }
+.tag.youtube { background: #ff000033; color: #ff6b6b; }
+
+.author {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.mod .author { color: #4caf50; }
+.sub .author { color: #ffb300; }
+
+.text {
+  word-break: break-word;
+}
