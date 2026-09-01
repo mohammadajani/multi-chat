@@ -8,10 +8,57 @@
 <body>
   <header>
     <h1>Multichat</h1>
-    <div id="filters"></div>
+    <div id="groupFilters" class="filter-row">
+      <div class="filter-chip group active" data-group="all">All</div>
+      <div class="filter-chip group" data-group="twitch">Twitch Only</div>
+      <div class="filter-chip group" data-group="youtube">YouTube Only</div>
+    </div>
+    <button id="settingsBtn" title="Settings">&#9881;</button>
   </header>
 
+  <div id="sourceFilters" class="filter-row"></div>
+
   <main id="feed"></main>
+
+  <div id="settingsOverlay" class="overlay hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Settings</h2>
+        <button id="closeSettings">&times;</button>
+      </div>
+
+      <section>
+        <h3>YouTube API Key</h3>
+        <p class="hint">Free key from Google Cloud Console (enable "YouTube Data API v3"). Needed once, shared by all YouTube accounts.</p>
+        <div class="row">
+          <input id="youtubeKeyInput" type="password" placeholder="YouTube API key" />
+          <button id="saveKeyBtn">Save</button>
+        </div>
+        <div id="keyStatus" class="hint"></div>
+      </section>
+
+      <section>
+        <h3>Twitch channels</h3>
+        <div class="row">
+          <input id="twitchLoginInput" placeholder="channel login (e.g. ninja)" />
+          <input id="twitchLabelInput" placeholder="label (optional, e.g. Twitch 1)" />
+          <button id="addTwitchBtn">Add</button>
+        </div>
+        <ul id="twitchList" class="source-list"></ul>
+      </section>
+
+      <section>
+        <h3>YouTube streams / accounts</h3>
+        <p class="hint">Add one entry per broadcast — this covers separate YouTube accounts, and each destination of a native YouTube dual-stream.</p>
+        <div class="row">
+          <input id="youtubeVideoIdInput" placeholder="video ID (from watch URL)" />
+          <input id="youtubeLabelInput" placeholder="label (optional, e.g. YouTube 1)" />
+          <button id="addYoutubeBtn">Add</button>
+        </div>
+        <ul id="youtubeList" class="source-list"></ul>
+      </section>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>

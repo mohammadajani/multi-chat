@@ -2,111 +2,120 @@ const { google } = require("googleapis");
 
 const youtube = google.youtube("v3");
 
-/**
- * Resolves a watch-page videoId to its active liveChatId.
- */
 async function resolveLiveChatId(apiKey, videoId) {
   const res = await youtube.videos.list({
     key: apiKey,
     part: ["liveStreamingDetails"],
     id: [videoId],
   });
-
   const video = res.data.items && res.data.items[0];
   const liveChatId = video?.liveStreamingDetails?.activeLiveChatId;
-
   if (!liveChatId) {
-    throw new Error(
-      `No active live chat found for video ${videoId}. Is it currently live?`
-    );
+    throw new Error(`no active live chat for video ${videoId} (is it live?)`);
   }
   return liveChatId;
 }
 
 /**
- * Polls one YouTube live chat on a loop, respecting YouTube's own suggested
- * polling interval (never polling faster than that, or faster than minPollMs).
- *
- * @param {string} apiKey
- * @param {{label: string, videoId: string}} stream
- * @param {number} minPollMs
- * @param {(msg: object) => void} onMessage
+ * Manages any number of independently pollable YouTube live chats, each
+ * stoppable/startable at runtime by id (so Settings can add/remove accounts
+ * or dual-stream destinations without restarting the app).
  */
-async function pollYoutubeStream(apiKey, stream, minPollMs, onMessage) {
-  let liveChatId;
-  try {
-    liveChatId = await resolveLiveChatId(apiKey, stream.videoId);
-  } catch (err) {
-    console.error(`[youtube:${stream.label}] ${err.message}`);
-    return; // give up on this one stream, others keep running
+class YoutubeManager {
+  constructor(onMessage) {
+    this.onMessage = onMessage;
+    this.pollers = new Map(); // id -> { cancelled }
+    this.apiKey = "";
+    this.minPollMs = 3000;
   }
 
-  console.log(`[youtube:${stream.label}] chat resolved, polling started`);
+  setApiKey(key) {
+    this.apiKey = key;
+  }
 
-  let pageToken = undefined;
-  let seen = new Set();
+  setMinPollMs(ms) {
+    this.minPollMs = ms;
+  }
 
-  const poll = async () => {
-    try {
-      const res = await youtube.liveChatMessages.list({
-        key: apiKey,
-        liveChatId,
-        part: ["snippet", "authorDetails"],
-        pageToken,
-      });
+  start(streams) {
+    for (const s of streams) this.addStream(s);
+  }
 
-      pageToken = res.data.nextPageToken;
-
-      for (const item of res.data.items || []) {
-        if (seen.has(item.id)) continue;
-        seen.add(item.id);
-
-        onMessage({
-          platform: "youtube",
-          source: stream.label,
-          id: item.id,
-          author: item.authorDetails.displayName,
-          color: null,
-          isMod: !!item.authorDetails.isChatModerator,
-          isSub: !!item.authorDetails.isChatSponsor,
-          message: item.snippet.displayMessage || "",
-          timestamp: Date.parse(item.snippet.publishedAt) || Date.now(),
-        });
-      }
-
-      // cap memory - we only need de-dupe over a recent window
-      if (seen.size > 5000) {
-        seen = new Set(Array.from(seen).slice(-2000));
-      }
-
-      const nextDelay = Math.max(
-        res.data.pollingIntervalMillis || minPollMs,
-        minPollMs
-      );
-      setTimeout(poll, nextDelay);
-    } catch (err) {
-      console.error(`[youtube:${stream.label}] poll error:`, err.message);
-      // back off and retry rather than dying - stream could recover
-      setTimeout(poll, Math.max(minPollMs * 3, 10000));
+  async addStream(stream) {
+    // stream: { id, videoId, label }
+    if (!this.apiKey) {
+      console.error(`[youtube:${stream.label}] no API key configured yet`);
+      return;
     }
-  };
+    if (this.pollers.has(stream.id)) return;
+    const state = { cancelled: false };
+    this.pollers.set(stream.id, state);
 
-  poll();
+    let liveChatId;
+    try {
+      liveChatId = await resolveLiveChatId(this.apiKey, stream.videoId);
+    } catch (err) {
+      console.error(`[youtube:${stream.label}] ${err.message}`);
+      return;
+    }
+
+    console.log(`[youtube:${stream.label}] chat resolved, polling started`);
+    let pageToken = undefined;
+    let seen = new Set();
+
+    const poll = async () => {
+      if (state.cancelled) return;
+      try {
+        const res = await youtube.liveChatMessages.list({
+          key: this.apiKey,
+          liveChatId,
+          part: ["snippet", "authorDetails"],
+          pageToken,
+        });
+        pageToken = res.data.nextPageToken;
+
+        for (const item of res.data.items || []) {
+          if (seen.has(item.id)) continue;
+          seen.add(item.id);
+          this.onMessage({
+            platform: "youtube",
+            sourceId: `youtube:${stream.id}`,
+            source: stream.label,
+            id: item.id,
+            author: item.authorDetails.displayName,
+            color: null,
+            isMod: !!item.authorDetails.isChatModerator,
+            isSub: !!item.authorDetails.isChatSponsor,
+            message: item.snippet.displayMessage || "",
+            timestamp: Date.parse(item.snippet.publishedAt) || Date.now(),
+          });
+        }
+
+        if (seen.size > 5000) seen = new Set(Array.from(seen).slice(-2000));
+
+        if (state.cancelled) return;
+        const nextDelay = Math.max(
+          res.data.pollingIntervalMillis || this.minPollMs,
+          this.minPollMs
+        );
+        state.timeout = setTimeout(poll, nextDelay);
+      } catch (err) {
+        console.error(`[youtube:${stream.label}] poll error:`, err.message);
+        if (state.cancelled) return;
+        state.timeout = setTimeout(poll, Math.max(this.minPollMs * 3, 10000));
+      }
+    };
+
+    poll();
+  }
+
+  removeStream(id) {
+    const state = this.pollers.get(id);
+    if (!state) return;
+    state.cancelled = true;
+    if (state.timeout) clearTimeout(state.timeout);
+    this.pollers.delete(id);
+  }
 }
 
-/**
- * Starts pollers for every configured YouTube stream (covers both separate
- * accounts and every destination of a native dual/multi-stream, since each
- * still has its own videoId + liveChatId).
- */
-function startYoutubeChats(apiKey, streams, minPollMs, onMessage) {
-  if (!streams || streams.length === 0) {
-    console.log("[youtube] no streams configured, skipping");
-    return;
-  }
-  for (const stream of streams) {
-    pollYoutubeStream(apiKey, stream, minPollMs, onMessage);
-  }
-}
-
-module.exports = { startYoutubeChats };
+module.exports = { YoutubeManager };
