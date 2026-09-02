@@ -117,11 +117,52 @@ async function fetchConfig() {
 }
 
 function refreshSettingsLists(config) {
+  // -- Google sign-in section --
+  document.getElementById("redirectUriHint").textContent =
+    `${window.location.origin}/auth/google/callback`;
+  document.getElementById("googleCredsForm").classList.toggle(
+    "hidden",
+    config.hasGoogleCredentials
+  );
+  document.getElementById("connectGoogleBtn").style.display = config.hasGoogleCredentials
+    ? "block"
+    : "none";
+
+  const accountList = document.getElementById("youtubeAccountList");
+  accountList.innerHTML = "";
+  config.youtubeAccounts.forEach((a) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>${a.label}</span>`;
+    const btn = document.createElement("button");
+    btn.className = "remove-btn";
+    btn.textContent = "Disconnect";
+    btn.addEventListener("click", () => removeYoutubeAccount(a.id));
+    li.appendChild(btn);
+    accountList.appendChild(li);
+  });
+
+  // -- Advanced/manual section --
   const keyStatus = document.getElementById("keyStatus");
   keyStatus.textContent = config.hasYoutubeKey
     ? "A YouTube API key is currently saved."
-    : "No YouTube API key saved yet — YouTube sources won't connect until you add one.";
+    : "No YouTube API key saved yet — manual video-ID sources won't connect until you add one.";
 
+  const youtubeList = document.getElementById("youtubeList");
+  youtubeList.innerHTML = "";
+  config.youtube
+    .filter((y) => y.dbId) // only manually-added entries have a dbId / are removable here
+    .forEach((y) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span>${y.label}</span>`;
+      const btn = document.createElement("button");
+      btn.className = "remove-btn";
+      btn.textContent = "Remove";
+      btn.addEventListener("click", () => removeYoutube(y.dbId));
+      li.appendChild(btn);
+      youtubeList.appendChild(li);
+    });
+
+  // -- Twitch section --
   const twitchList = document.getElementById("twitchList");
   twitchList.innerHTML = "";
   config.twitch.forEach((c) => {
@@ -134,20 +175,36 @@ function refreshSettingsLists(config) {
     li.appendChild(btn);
     twitchList.appendChild(li);
   });
-
-  const youtubeList = document.getElementById("youtubeList");
-  youtubeList.innerHTML = "";
-  config.youtube.forEach((y) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${y.label}</span>`;
-    const btn = document.createElement("button");
-    btn.className = "remove-btn";
-    btn.textContent = "Remove";
-    btn.addEventListener("click", () => removeYoutube(y.dbId));
-    li.appendChild(btn);
-    youtubeList.appendChild(li);
-  });
 }
+
+document.getElementById("saveGoogleCredsBtn").addEventListener("click", async () => {
+  const clientId = document.getElementById("googleClientIdInput").value.trim();
+  const clientSecret = document.getElementById("googleClientSecretInput").value.trim();
+  if (!clientId || !clientSecret) return;
+  const res = await fetch("/api/google-credentials", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId, clientSecret }),
+  });
+  if (res.ok) {
+    refreshSettingsLists(await fetchConfig());
+  } else {
+    const err = await res.json();
+    alert(err.error || "failed to save credentials");
+  }
+});
+
+document.getElementById("connectGoogleBtn").addEventListener("click", () => {
+  window.location.href = "/auth/google/start";
+});
+
+async function removeYoutubeAccount(id) {
+  await fetch(`/api/youtube-account/${id}`, { method: "DELETE" });
+}
+
+document.getElementById("advancedToggle").addEventListener("click", () => {
+  document.getElementById("advancedPanel").classList.toggle("hidden");
+});
 
 document.getElementById("saveKeyBtn").addEventListener("click", async () => {
   const input = document.getElementById("youtubeKeyInput");
@@ -209,3 +266,10 @@ fetchConfig().then((config) => {
   renderSourceChips(config);
   refreshSettingsLists(config);
 });
+
+// after a Google sign-in redirect, reopen settings so the new account is visible
+const params = new URLSearchParams(window.location.search);
+if (params.has("connected")) {
+  overlay.classList.remove("hidden");
+  window.history.replaceState({}, "", window.location.pathname);
+}

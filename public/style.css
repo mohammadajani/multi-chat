@@ -183,3 +183,31 @@ header h1 {
   cursor: pointer;
   font-size: 13px;
 }
+
+.connect-btn {
+  display: block;
+  width: 100%;
+  background: #fff;
+  color: #1a1a20;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+}
+.connect-btn:hover { background: #e8e8f0; }
+
+#googleCredsForm { margin-bottom: 10px; }
+#redirectUriHint {
+  background: #0e0e12;
+  border: 1px solid #303039;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+}
+
+.advanced-toggle { cursor: pointer; user-select: none; }
+.advanced-toggle h3 { color: #8f8fa0; }
+#advancedPanel.hidden { display: none; }

@@ -6,9 +6,16 @@ const DB_PATH = path.join(__dirname, "..", "db.json");
 
 function defaultState() {
   return {
+    // Advanced (manual) YouTube method - reads public chat by video ID, no login
     youtubeApiKey: "",
-    twitchChannels: [], // [{ id, login, label }]
     youtubeStreams: [], // [{ id, label, videoId }]
+
+    // Primary YouTube method - Google login, auto-detects your own live broadcasts
+    googleClientId: "",
+    googleClientSecret: "",
+    youtubeAccounts: [], // [{ id, label, tokens: {access_token, refresh_token, expiry_date, scope, token_type} }]
+
+    twitchChannels: [], // [{ id, login, label }]
   };
 }
 
@@ -38,27 +45,11 @@ function getState() {
   return state;
 }
 
+// ---- advanced/manual YouTube (video ID + API key) ----
 function setYoutubeApiKey(key) {
   state.youtubeApiKey = key.trim();
   save(state);
   return state;
-}
-
-function addTwitchChannel(login, label) {
-  login = login.trim().toLowerCase().replace(/^#/, "");
-  if (!login) throw new Error("channel login required");
-  if (state.twitchChannels.some((c) => c.login === login)) {
-    throw new Error(`already added: ${login}`);
-  }
-  const entry = { id: crypto.randomUUID(), login, label: label?.trim() || login };
-  state.twitchChannels.push(entry);
-  save(state);
-  return entry;
-}
-
-function removeTwitchChannel(id) {
-  state.twitchChannels = state.twitchChannels.filter((c) => c.id !== id);
-  save(state);
 }
 
 function addYoutubeStream(videoId, label) {
@@ -82,11 +73,60 @@ function removeYoutubeStream(id) {
   save(state);
 }
 
+// ---- primary YouTube (Google login) ----
+function setGoogleCredentials(clientId, clientSecret) {
+  state.googleClientId = clientId.trim();
+  state.googleClientSecret = clientSecret.trim();
+  save(state);
+  return state;
+}
+
+function addYoutubeAccount(label, tokens) {
+  const entry = { id: crypto.randomUUID(), label, tokens };
+  state.youtubeAccounts.push(entry);
+  save(state);
+  return entry;
+}
+
+function updateYoutubeAccountTokens(id, tokens) {
+  const acc = state.youtubeAccounts.find((a) => a.id === id);
+  if (!acc) return;
+  acc.tokens = { ...acc.tokens, ...tokens };
+  save(state);
+}
+
+function removeYoutubeAccount(id) {
+  state.youtubeAccounts = state.youtubeAccounts.filter((a) => a.id !== id);
+  save(state);
+}
+
+// ---- Twitch ----
+function addTwitchChannel(login, label) {
+  login = login.trim().toLowerCase().replace(/^#/, "");
+  if (!login) throw new Error("channel login required");
+  if (state.twitchChannels.some((c) => c.login === login)) {
+    throw new Error(`already added: ${login}`);
+  }
+  const entry = { id: crypto.randomUUID(), login, label: label?.trim() || login };
+  state.twitchChannels.push(entry);
+  save(state);
+  return entry;
+}
+
+function removeTwitchChannel(id) {
+  state.twitchChannels = state.twitchChannels.filter((c) => c.id !== id);
+  save(state);
+}
+
 module.exports = {
   getState,
   setYoutubeApiKey,
-  addTwitchChannel,
-  removeTwitchChannel,
   addYoutubeStream,
   removeYoutubeStream,
+  setGoogleCredentials,
+  addYoutubeAccount,
+  updateYoutubeAccountTokens,
+  removeYoutubeAccount,
+  addTwitchChannel,
+  removeTwitchChannel,
 };

@@ -28,13 +28,22 @@
       </div>
 
       <section>
-        <h3>YouTube API Key</h3>
-        <p class="hint">Free key from Google Cloud Console (enable "YouTube Data API v3"). Needed once, shared by all YouTube accounts.</p>
-        <div class="row">
-          <input id="youtubeKeyInput" type="password" placeholder="YouTube API key" />
-          <button id="saveKeyBtn">Save</button>
+        <h3>YouTube — Sign in with Google</h3>
+        <p class="hint">Connects to an account and automatically pulls chat from whatever it's currently live-streaming — no video ID needed. Sign in again to add a second account (e.g. your other channel, or a friend's).</p>
+
+        <div id="googleCredsForm">
+          <p class="hint">One-time setup: create a free OAuth Client ID in Google Cloud Console (APIs &amp; Services → Credentials → OAuth client ID → type "Web application"), enable "YouTube Data API v3", and add <code id="redirectUriHint"></code> as an authorized redirect URI.</p>
+          <div class="row">
+            <input id="googleClientIdInput" placeholder="Google Client ID" />
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <input id="googleClientSecretInput" type="password" placeholder="Google Client Secret" />
+            <button id="saveGoogleCredsBtn">Save</button>
+          </div>
         </div>
-        <div id="keyStatus" class="hint"></div>
+
+        <button id="connectGoogleBtn" class="connect-btn">Sign in with Google</button>
+        <ul id="youtubeAccountList" class="source-list"></ul>
       </section>
 
       <section>
@@ -48,14 +57,23 @@
       </section>
 
       <section>
-        <h3>YouTube streams / accounts</h3>
-        <p class="hint">Add one entry per broadcast — this covers separate YouTube accounts, and each destination of a native YouTube dual-stream.</p>
-        <div class="row">
-          <input id="youtubeVideoIdInput" placeholder="video ID (from watch URL)" />
-          <input id="youtubeLabelInput" placeholder="label (optional, e.g. YouTube 1)" />
-          <button id="addYoutubeBtn">Add</button>
+        <div class="advanced-toggle" id="advancedToggle">
+          <h3>Advanced: add a YouTube stream by video ID &#9662;</h3>
         </div>
-        <ul id="youtubeList" class="source-list"></ul>
+        <div id="advancedPanel" class="hidden">
+          <p class="hint">Use this only if you don't want to sign in — reads a specific broadcast's public chat by video ID. Needs a free YouTube API key (Google Cloud Console → Credentials → API key).</p>
+          <div class="row">
+            <input id="youtubeKeyInput" type="password" placeholder="YouTube API key" />
+            <button id="saveKeyBtn">Save</button>
+          </div>
+          <div id="keyStatus" class="hint"></div>
+          <div class="row" style="margin-top:10px;">
+            <input id="youtubeVideoIdInput" placeholder="video ID (from watch URL)" />
+            <input id="youtubeLabelInput" placeholder="label (optional)" />
+            <button id="addYoutubeBtn">Add</button>
+          </div>
+          <ul id="youtubeList" class="source-list"></ul>
+        </div>
       </section>
     </div>
   </div>
