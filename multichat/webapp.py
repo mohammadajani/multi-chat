@@ -73,9 +73,13 @@ class Hub:
 def build_app(hub: Hub) -> web.Application:
     app = web.Application()
     index_path = Path(__file__).parent / "web" / "index.html"
+    overlay_path = Path(__file__).parent / "web" / "overlay.html"
 
     async def index(request):
         return web.FileResponse(index_path)
+
+    async def overlay(request):
+        return web.FileResponse(overlay_path)
 
     async def get_config(request):
         try:
@@ -127,6 +131,14 @@ def build_app(hub: Hub) -> web.Application:
             ok = await hub.relay.speak(session, "Multichat", "This is a test message from multichat T T S.", "test")
         return web.json_response({"ok": ok})
 
+    async def test_message(request):
+        # Lets the Overlay/Setup pages show a real message flowing through the
+        # pipeline (and animate the overlay) without waiting for live chat.
+        msg = ChatMessage(platform="twitch", channel="Test", username="Multichat",
+                           text="This is a test message -- your overlay is working!")
+        await hub.broadcast(msg)
+        return web.json_response({"ok": True})
+
     async def list_channels(request):
         return web.json_response(hub.manager.status())
 
@@ -152,10 +164,12 @@ def build_app(hub: Hub) -> web.Application:
         return ws
 
     app.router.add_get("/", index)
+    app.router.add_get("/overlay", overlay)
     app.router.add_get("/api/config", get_config)
     app.router.add_post("/api/config", save_config)
     app.router.add_post("/api/tts-toggle", tts_toggle)
     app.router.add_post("/api/tts-test", tts_test)
+    app.router.add_post("/api/test-message", test_message)
     app.router.add_get("/api/channels", list_channels)
     app.router.add_post("/api/channel-toggle", channel_toggle)
     app.router.add_get("/ws", ws_handler)
@@ -169,5 +183,6 @@ async def run_webui(hub: Hub, host: str, port: int):
     site = web.TCPSite(runner, host, port)
     await site.start()
     print(f"[webui] open http://{host}:{port} for setup + the live chat page")
+    print(f"[webui] overlay URL for OBS: http://{host}:{port}/overlay (customize it from the Overlay tab)")
     while True:
         await asyncio.sleep(3600)

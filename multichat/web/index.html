@@ -104,12 +104,26 @@
   input:checked + .slider { background: var(--good); }
   input:checked + .slider:before { transform: translateX(16px); }
   .field-hint { font-size: 12px; color: var(--muted); margin-top: -2px; }
+  #ovPreviewFrame {
+    height: 320px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border);
+    background-image:
+      linear-gradient(45deg, #2a2e38 25%, transparent 25%),
+      linear-gradient(-45deg, #2a2e38 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #2a2e38 75%),
+      linear-gradient(-45deg, transparent 75%, #2a2e38 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    background-color: #1b1e26;
+  }
+  #ovPreview { width: 100%; height: 100%; border: none; }
+  input[type=range] { width: 100%; }
 </style>
 </head>
 <body>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="chat">Live Chat</button>
+  <button class="tab-btn" data-tab="overlay">Overlay</button>
   <button class="tab-btn" data-tab="setup">Setup</button>
 </div>
 
@@ -122,6 +136,49 @@
   </div>
   <div id="filterBar" class="filter-bar"></div>
   <div id="log" class="log"></div>
+</section>
+
+<section id="overlay" class="tab-content">
+  <h2>Chat overlay for OBS</h2>
+  <div class="field-hint">
+    Add the URL below as an OBS <strong>Browser Source</strong> to show live chat on
+    stream, with a short sound on new messages. Background is transparent — it'll sit
+    on top of your other sources.
+  </div>
+
+  <label><input type="checkbox" id="ovSound" checked> Play a sound on new message</label>
+  <label>Volume <input type="range" id="ovVolume" min="0" max="1" step="0.05" value="0.4"></label>
+  <label>Max messages shown at once <input type="number" id="ovMax" value="6" min="1" max="20"></label>
+  <label>Message lifetime, seconds <span class="field-hint">(0 = stays until pushed off by newer ones)</span>
+    <input type="number" id="ovDuration" value="12" min="0">
+  </label>
+  <label>Platform
+    <select id="ovPlatform">
+      <option value="all">All</option>
+      <option value="twitch">Twitch only</option>
+      <option value="youtube">YouTube only</option>
+      <option value="kick">Kick only</option>
+    </select>
+  </label>
+  <label>Specific channel <span class="field-hint">(optional)</span>
+    <select id="ovChannel"><option value="">Any</option></select>
+  </label>
+
+  <label>Overlay URL — paste into OBS → Sources → + → Browser Source</label>
+  <div style="display:flex; gap:8px;">
+    <input type="text" id="ovUrl" readonly>
+    <button type="button" id="ovCopy" class="add-btn" style="margin:0; white-space:nowrap;">Copy</button>
+  </div>
+  <span id="ovCopyNote" class="field-hint"></span>
+
+  <h2>Preview</h2>
+  <div class="field-hint" style="margin-bottom:8px;">
+    Checkerboard = transparent, same as it'll look sitting over your stream.
+  </div>
+  <button type="button" id="ovTestMsg" class="add-btn">Send test message</button>
+  <div id="ovPreviewFrame" style="margin-top:10px;">
+    <iframe id="ovPreview" title="overlay preview"></iframe>
+  </div>
 </section>
 
 <section id="setup" class="tab-content">
@@ -382,6 +439,7 @@ async function loadChannels() {
   if (!res.ok) return;
   knownChannels = await res.json();
   renderFilterChips();
+  populateOverlayChannelSelect();
   document.querySelectorAll(".row").forEach(row => {
     const listEl = row.closest(".rowlist");
     if (listEl) updateRowKey(listEl.id.replace("List", ""), row);
@@ -488,8 +546,70 @@ document.getElementById("ttsTest").addEventListener("click", async () => {
   setTimeout(() => (btn.textContent = "Send test TTS"), 2000);
 });
 
+// ---------- Overlay tab: URL builder + preview ----------
+
+function populateOverlayChannelSelect() {
+  const sel = document.getElementById("ovChannel");
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Any</option>';
+  knownChannels.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.label;
+    opt.textContent = `${PLATFORM_LABEL[c.platform] || c.platform}: ${c.label}`;
+    sel.appendChild(opt);
+  });
+  if ([...sel.options].some(o => o.value === current)) sel.value = current;
+}
+
+function buildOverlayUrl() {
+  const params = new URLSearchParams();
+  params.set("sound", document.getElementById("ovSound").checked ? "1" : "0");
+  params.set("volume", document.getElementById("ovVolume").value);
+  params.set("max", document.getElementById("ovMax").value);
+  params.set("duration", document.getElementById("ovDuration").value);
+  params.set("platform", document.getElementById("ovPlatform").value);
+  const channel = document.getElementById("ovChannel").value;
+  if (channel) params.set("channel", channel);
+  return `${location.origin}/overlay?${params.toString()}`;
+}
+
+function refreshOverlayControls() {
+  const url = buildOverlayUrl();
+  document.getElementById("ovUrl").value = url;
+  const frame = document.getElementById("ovPreview");
+  if (frame.src !== url) frame.src = url;
+}
+
+["ovSound", "ovVolume", "ovMax", "ovDuration", "ovPlatform", "ovChannel"].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener("input", refreshOverlayControls);
+  el.addEventListener("change", refreshOverlayControls);
+});
+
+document.getElementById("ovCopy").addEventListener("click", async () => {
+  const url = document.getElementById("ovUrl").value;
+  const note = document.getElementById("ovCopyNote");
+  try {
+    await navigator.clipboard.writeText(url);
+    note.textContent = "Copied!";
+  } catch (e) {
+    note.textContent = "Couldn't auto-copy — select the text and copy manually.";
+  }
+  setTimeout(() => (note.textContent = ""), 2500);
+});
+
+document.getElementById("ovTestMsg").addEventListener("click", async () => {
+  const btn = document.getElementById("ovTestMsg");
+  btn.textContent = "Sending…";
+  await fetch("/api/test-message", { method: "POST" });
+  btn.textContent = "Sent ✓";
+  setTimeout(() => (btn.textContent = "Send test message"), 1500);
+});
+
 loadConfig();
 loadChannels();
+refreshOverlayControls();
 setInterval(loadChannels, 15000);
 </script>
 </body>

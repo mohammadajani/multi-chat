@@ -137,6 +137,37 @@ Easiest via the Setup page's TTS section. Under the hood it's `config.json`'s
   10-second window, so a flood of chat doesn't queue up dozens of TTS
   lines.
 
+## Chat overlay for OBS
+
+Open the **Overlay** tab in the dashboard. It builds a URL like:
+
+```
+http://127.0.0.1:8765/overlay?sound=1&volume=0.4&max=6&duration=12&platform=all
+```
+
+Controls: sound on/off, volume, how many messages stay on screen at once,
+how long each one lingers before fading out (0 = stays until pushed off by
+newer ones), and an optional filter down to one platform or one specific
+channel — handy if you only want, say, your main YouTube chat on stream
+and not everything else.
+
+Hit **Copy**, then in OBS: **Sources → + → Browser Source**, paste the URL
+in, and set a width/height (roughly 420×600 works well, but resize to
+taste). Background is transparent, so it'll sit over your other sources
+without a box around it. The notification sound is generated in the page
+itself (no audio file involved), so it works even with no internet.
+
+The Overlay tab also shows a live preview (checkerboard = transparent) and
+a **Send test message** button so you can see it animate and hear the
+sound before going live.
+
+One thing to know: OBS's Browser Source sometimes mutes audio by default
+unless you check the "Control audio via OBS" box in its properties (or
+leave it unchecked, depending on your OBS version) — if you copy the URL
+into a normal browser tab first, the sound should work immediately there,
+which is a quick way to confirm it's not the script's fault if OBS stays
+silent.
+
 ## Notes / known limits
 
 - This is read-only for all three platforms — it doesn't post messages
