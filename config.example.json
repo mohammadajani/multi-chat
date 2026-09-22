@@ -1,0 +1,38 @@
+{
+  "twitch": {
+    "channels": [
+      { "channel": "yourtwitchname", "label": "Twitch", "enabled": true }
+    ]
+  },
+  "youtube": {
+    "api_key": "YOUR_YOUTUBE_DATA_API_KEY",
+    "channels": [
+      { "label": "YT-Main", "channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx", "enabled": true },
+      { "label": "YT-Alt", "channel_id": "UCyyyyyyyyyyyyyyyyyyyyyy", "enabled": true }
+    ]
+  },
+  "kick": {
+    "channels": [
+      { "slug": "yourkickname", "label": "Kick", "enabled": true }
+    ]
+  },
+  "webui": {
+    "host": "127.0.0.1",
+    "port": 8765
+  },
+  "streamerbot": {
+    "host": "127.0.0.1",
+    "port": 7474,
+    "action_name": "Multichat TTS",
+    "action_id": null
+  },
+  "tts": {
+    "enabled": true,
+    "mode": "all",
+    "prefix": "!tts",
+    "skip_commands": true,
+    "min_length": 2,
+    "max_length": 200,
+    "max_per_10s": 5
+  }
+}

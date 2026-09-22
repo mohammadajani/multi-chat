@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multichat TTS</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262b36;
+    --text: #e7e9ee;
+    --muted: #9aa1b1;
+    --accent: #6c8cff;
+    --twitch: #a970ff;
+    --youtube: #ff5f5f;
+    --kick: #53e08e;
+    --good: #53e08e;
+    --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .tab-btn {
+    background: none; border: none; color: var(--muted); padding: 14px 20px;
+    font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-content { display: none; padding: 20px; max-width: 820px; margin: 0 auto; }
+  .tab-content.active { display: block; }
+
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.connected { color: var(--good); }
+  .status.disconnected { color: var(--bad); }
+
+  .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer;
+  }
+  .chip.active { color: #0f1115; font-weight: 700; border-color: transparent; }
+  .chip.twitch.active { background: var(--twitch); }
+  .chip.youtube.active { background: var(--youtube); }
+  .chip.kick.active { background: var(--kick); }
+  .chip.all-chip.active { background: var(--accent); }
+  .chip.channel-chip { opacity: 0.85; }
+
+  .log {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    height: 65vh; overflow-y: auto; padding: 10px; font-size: 14px;
+  }
+  .log .line { padding: 4px 6px; border-radius: 4px; }
+  .log .line:hover { background: #1e222c; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 6px;
+    border-radius: 4px; margin-right: 6px; color: #0f1115;
+  }
+  .badge.twitch { background: var(--twitch); }
+  .badge.youtube { background: var(--youtube); }
+  .badge.kick { background: var(--kick); }
+  .username { font-weight: 700; margin-right: 4px; }
+  .chan { color: var(--muted); font-size: 12px; margin-right: 6px; }
+  .empty-hint { color: var(--muted); font-size: 13px; padding: 10px; }
+
+  h2 { font-size: 15px; color: var(--accent); margin: 24px 0 10px; }
+  h2:first-child { margin-top: 0; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], input[type=number], input[type=password], select {
+    width: 100%; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 10px; border-radius: 6px; font-size: 14px;
+  }
+  input[type=checkbox] { transform: scale(1.1); margin-right: 6px; }
+  .rowlist { display: flex; flex-direction: column; gap: 8px; }
+  .row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+    align-items: center;
+  }
+  .row input { margin: 0; }
+  .row .remove-btn { background: none; border: 1px solid var(--border); color: var(--bad); border-radius: 6px; cursor: pointer; padding: 8px; }
+  .row-switch-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .row-switch-label { font-size: 10px; color: var(--muted); }
+  .add-btn, .save-btn, #ttsTest {
+    background: var(--accent); border: none; color: #0f1115; font-weight: 700;
+    padding: 9px 14px; border-radius: 6px; cursor: pointer; margin-top: 10px; font-size: 13px;
+  }
+  #ttsTest { background: var(--panel); color: var(--text); border: 1px solid var(--border); margin: 0; }
+  .save-btn { margin-top: 20px; }
+  #saveNote { display: block; margin-top: 8px; font-size: 13px; color: var(--muted); white-space: pre-line; }
+
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; cursor: pointer; inset: 0; background: #333; border-radius: 22px; transition: .15s;
+  }
+  .slider:before {
+    content: ""; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px;
+    background: white; border-radius: 50%; transition: .15s;
+  }
+  input:checked + .slider { background: var(--good); }
+  input:checked + .slider:before { transform: translateX(16px); }
+  .field-hint { font-size: 12px; color: var(--muted); margin-top: -2px; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="chat">Live Chat</button>
+  <button class="tab-btn" data-tab="setup">Setup</button>
+</div>
+
+<section id="chat" class="tab-content active">
+  <div class="toolbar">
+    <label class="switch"><input type="checkbox" id="ttsToggle"><span class="slider"></span></label>
+    <span>TTS enabled</span>
+    <button id="ttsTest" type="button">Send test TTS</button>
+    <span id="wsStatus" class="status">connecting…</span>
+  </div>
+  <div id="filterBar" class="filter-bar"></div>
+  <div id="log" class="log"></div>
+</section>
+
+<section id="setup" class="tab-content">
+  <form id="cfgForm">
+    <h2>Twitch</h2>
+    <div id="twitchList" class="rowlist"></div>
+    <button type="button" class="add-btn" data-list="twitch">+ Add Twitch channel</button>
+
+    <h2>YouTube</h2>
+    <label>API key
+      <input type="password" id="ytApiKey" placeholder="YouTube Data API v3 key">
+    </label>
+    <div class="field-hint">console.cloud.google.com → enable "YouTube Data API v3" → create a key</div>
+    <div id="youtubeList" class="rowlist" style="margin-top:10px;"></div>
+    <button type="button" class="add-btn" data-list="youtube">+ Add YouTube channel</button>
+
+    <h2>Kick</h2>
+    <div id="kickList" class="rowlist"></div>
+    <button type="button" class="add-btn" data-list="kick">+ Add Kick channel</button>
+
+    <div class="field-hint" style="margin-top:16px;">
+      The switch on each row turns that channel's connection on/off. For channels already
+      running, this takes effect immediately — no restart, no bandwidth spent while it's off.
+      Rows you just added need Save + a restart before their switch goes live.
+    </div>
+
+    <h2>Streamer.bot (for TTS)</h2>
+    <label>Host <input type="text" id="sbHost"></label>
+    <label>Port <input type="number" id="sbPort"></label>
+    <label>Action name <input type="text" id="sbActionName" placeholder="Multichat TTS"></label>
+    <label>Action ID <span class="field-hint">(optional — use instead of name)</span>
+      <input type="text" id="sbActionId">
+    </label>
+
+    <h2>TTS behavior</h2>
+    <label><input type="checkbox" id="ttsEnabled"> Enabled</label>
+    <label>Mode
+      <select id="ttsMode">
+        <option value="all">Speak everything</option>
+        <option value="prefix">Only messages starting with a prefix</option>
+      </select>
+    </label>
+    <label>Prefix <input type="text" id="ttsPrefix" placeholder="!tts"></label>
+    <label><input type="checkbox" id="ttsSkipCommands"> Skip messages starting with "!"</label>
+    <label>Min length <input type="number" id="ttsMin"></label>
+    <label>Max length <input type="number" id="ttsMax"></label>
+    <label>Max TTS messages per 10 seconds <input type="number" id="ttsRate"></label>
+
+    <button type="submit" class="save-btn">Save config</button>
+    <span id="saveNote"></span>
+  </form>
+</section>
+
+<script>
+const PLATFORM_LABEL = { twitch: "Twitch", youtube: "YouTube", kick: "Kick" };
+const PLATFORM_ROW_FIELDS = {
+  twitch:  [["channel", "Twitch channel name"], ["label", "Label (optional)"]],
+  youtube: [["label", "Label"], ["channel_id", "Channel ID"], ["video_id", "or Video ID (skip channel lookup)"]],
+  kick:    [["slug", "Kick channel slug"], ["label", "Label (optional)"]],
+};
+
+let knownChannels = [];              // last result from GET /api/channels
+let currentFilter = { type: "all" }; // { type: "all" } | { type: "platform", platform } | { type: "channel", platform, label }
+let allMessages = [];                // in-memory history so filter switches can re-render
+
+// ---------- helpers ----------
+
+function computeKey(platform, values) {
+  if (platform === "twitch") return values.channel ? `twitch:${values.channel.toLowerCase()}` : null;
+  if (platform === "kick") return values.slug ? `kick:${values.slug.toLowerCase()}` : null;
+  if (platform === "youtube") {
+    const ident = values.channel_id || values.video_id || values.label;
+    return ident ? `youtube:${ident}` : null;
+  }
+  return null;
+}
+
+function filterEquals(a, b) {
+  return a.type === b.type && a.platform === b.platform && a.label === b.label;
+}
+
+// ---------- Setup tab: rows ----------
+
+function addRow(listId, values) {
+  const list = document.getElementById(listId + "List");
+  const row = document.createElement("div");
+  row.className = "row";
+  const fields = PLATFORM_ROW_FIELDS[listId];
+
+  fields.forEach(([key, placeholder]) => {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = placeholder;
+    input.dataset.key = key;
+    input.value = (values && values[key]) || "";
+    input.addEventListener("input", () => updateRowKey(listId, row));
+    row.appendChild(input);
+  });
+  while (row.children.length < 3) row.appendChild(document.createElement("div"));
+
+  const switchWrap = document.createElement("div");
+  switchWrap.className = "row-switch-wrap";
+  const label = document.createElement("label");
+  label.className = "switch";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = values.enabled !== false;
+  const slider = document.createElement("span");
+  slider.className = "slider";
+  label.appendChild(cb);
+  label.appendChild(slider);
+  const statusText = document.createElement("span");
+  statusText.className = "row-switch-label";
+  statusText.textContent = "on/off";
+  switchWrap.appendChild(label);
+  switchWrap.appendChild(statusText);
+  row.dataset.enabled = String(values.enabled !== false);
+
+  cb.addEventListener("change", async () => {
+    row.dataset.enabled = String(cb.checked);
+    const key = row.dataset.liveKey;
+    if (key) {
+      statusText.textContent = "…";
+      const res = await fetch("/api/channel-toggle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, enabled: cb.checked }),
+      });
+      statusText.textContent = res.ok ? (cb.checked ? "live" : "paused") : "error";
+      loadChannels();
+    } else {
+      statusText.textContent = "after save";
+    }
+  });
+  row.appendChild(switchWrap);
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "remove-btn";
+  removeBtn.textContent = "Remove";
+  removeBtn.onclick = () => row.remove();
+  row.appendChild(removeBtn);
+
+  list.appendChild(row);
+  updateRowKey(listId, row);
+}
+
+function updateRowKey(listId, row) {
+  const values = {};
+  row.querySelectorAll("input[data-key]").forEach(i => { if (i.value.trim()) values[i.dataset.key] = i.value.trim(); });
+  const key = computeKey(listId, values);
+  const known = key && knownChannels.find(c => c.key === key);
+  const statusText = row.querySelector(".row-switch-label");
+  if (known) {
+    row.dataset.liveKey = key;
+    if (statusText) statusText.textContent = known.running ? "live" : "paused";
+  } else {
+    delete row.dataset.liveKey;
+    if (statusText) statusText.textContent = "on/off";
+  }
+}
+
+function readRows(listId) {
+  const rows = document.querySelectorAll("#" + listId + "List .row");
+  const out = [];
+  rows.forEach(row => {
+    const obj = {};
+    row.querySelectorAll("input[data-key]").forEach(input => {
+      if (input.value.trim()) obj[input.dataset.key] = input.value.trim();
+    });
+    if (Object.keys(obj).length) {
+      obj.enabled = row.dataset.enabled !== "false";
+      out.push(obj);
+    }
+  });
+  return out;
+}
+
+document.querySelectorAll(".add-btn").forEach(btn => {
+  btn.onclick = () => addRow(btn.dataset.list, {});
+});
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.tab).classList.add("active");
+    loadChannels();
+  };
+});
+
+// ---------- config load/save ----------
+
+async function loadConfig() {
+  const res = await fetch("/api/config");
+  if (!res.ok) return;
+  const cfg = await res.json();
+
+  (cfg.twitch?.channels || []).forEach(c => addRow("twitch", c));
+  (cfg.youtube?.channels || []).forEach(c => addRow("youtube", c));
+  (cfg.kick?.channels || []).forEach(c => addRow("kick", c));
+  if (!(cfg.twitch?.channels || []).length) addRow("twitch", {});
+  if (!(cfg.youtube?.channels || []).length) addRow("youtube", {});
+  if (!(cfg.kick?.channels || []).length) addRow("kick", {});
+
+  document.getElementById("ytApiKey").value = cfg.youtube?.api_key || "";
+  document.getElementById("sbHost").value = cfg.streamerbot?.host || "127.0.0.1";
+  document.getElementById("sbPort").value = cfg.streamerbot?.port || 7474;
+  document.getElementById("sbActionName").value = cfg.streamerbot?.action_name || "";
+  document.getElementById("sbActionId").value = cfg.streamerbot?.action_id || "";
+
+  const tts = cfg.tts || {};
+  document.getElementById("ttsEnabled").checked = !!tts.enabled;
+  document.getElementById("ttsToggle").checked = !!tts.enabled;
+  document.getElementById("ttsMode").value = tts.mode || "all";
+  document.getElementById("ttsPrefix").value = tts.prefix || "!tts";
+  document.getElementById("ttsSkipCommands").checked = tts.skip_commands !== false;
+  document.getElementById("ttsMin").value = tts.min_length ?? 2;
+  document.getElementById("ttsMax").value = tts.max_length ?? 200;
+  document.getElementById("ttsRate").value = tts.max_per_10s ?? 5;
+}
+
+document.getElementById("cfgForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const cfg = {
+    twitch: { channels: readRows("twitch") },
+    youtube: { api_key: document.getElementById("ytApiKey").value.trim(), channels: readRows("youtube") },
+    kick: { channels: readRows("kick") },
+    streamerbot: {
+      host: document.getElementById("sbHost").value.trim() || "127.0.0.1",
+      port: parseInt(document.getElementById("sbPort").value) || 7474,
+      action_name: document.getElementById("sbActionName").value.trim() || null,
+      action_id: document.getElementById("sbActionId").value.trim() || null,
+    },
+    tts: {
+      enabled: document.getElementById("ttsEnabled").checked,
+      mode: document.getElementById("ttsMode").value,
+      prefix: document.getElementById("ttsPrefix").value.trim() || "!tts",
+      skip_commands: document.getElementById("ttsSkipCommands").checked,
+      min_length: parseInt(document.getElementById("ttsMin").value) || 2,
+      max_length: parseInt(document.getElementById("ttsMax").value) || 200,
+      max_per_10s: parseInt(document.getElementById("ttsRate").value) || 5,
+    },
+  };
+  const res = await fetch("/api/config", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg),
+  });
+  const data = await res.json();
+  const note = document.getElementById("saveNote");
+  note.textContent = data.error ? ("Error: " + data.error) : data.note;
+  document.getElementById("ttsToggle").checked = cfg.tts.enabled;
+});
+
+// ---------- channel list (for filter chips + setup row status) ----------
+
+async function loadChannels() {
+  const res = await fetch("/api/channels");
+  if (!res.ok) return;
+  knownChannels = await res.json();
+  renderFilterChips();
+  document.querySelectorAll(".row").forEach(row => {
+    const listEl = row.closest(".rowlist");
+    if (listEl) updateRowKey(listEl.id.replace("List", ""), row);
+  });
+}
+
+function addChip(bar, text, filterObj, platformClass) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "chip" + (platformClass ? " " + platformClass : "") +
+                    (filterEquals(filterObj, currentFilter) ? " active" : "");
+  chip.textContent = text;
+  chip.onclick = () => { currentFilter = filterObj; renderFilterChips(); fullRerender(); };
+  bar.appendChild(chip);
+}
+
+function renderFilterChips() {
+  const bar = document.getElementById("filterBar");
+  bar.innerHTML = "";
+  addChip(bar, "All", { type: "all" }, "all-chip");
+  const platforms = [...new Set(knownChannels.map(c => c.platform))];
+  platforms.forEach(p => addChip(bar, PLATFORM_LABEL[p] + " only", { type: "platform", platform: p }, p));
+  knownChannels.forEach(c => {
+    addChip(bar, c.label + (c.running ? "" : " (off)"), { type: "channel", platform: c.platform, label: c.label }, "channel-chip " + c.platform);
+  });
+}
+
+// ---------- Live chat: history + filtering + websocket ----------
+
+function matchesFilter(m) {
+  if (currentFilter.type === "all") return true;
+  if (currentFilter.type === "platform") return m.platform === currentFilter.platform;
+  if (currentFilter.type === "channel") return m.platform === currentFilter.platform && m.channel === currentFilter.label;
+  return true;
+}
+
+function buildLineEl(m) {
+  const line = document.createElement("div");
+  line.className = "line";
+  line.innerHTML =
+    `<span class="badge ${m.platform}">${PLATFORM_LABEL[m.platform] || m.platform}</span>` +
+    `<span class="chan">${m.channel}</span>` +
+    `<span class="username">${m.username}:</span>` +
+    `<span>${m.text.replace(/</g, "&lt;")}</span>`;
+  return line;
+}
+
+function fullRerender() {
+  const log = document.getElementById("log");
+  log.innerHTML = "";
+  const visible = allMessages.filter(matchesFilter).slice(-500);
+  if (!visible.length) {
+    const hint = document.createElement("div");
+    hint.className = "empty-hint";
+    hint.textContent = "No messages yet for this filter.";
+    log.appendChild(hint);
+  } else {
+    visible.forEach(m => log.appendChild(buildLineEl(m)));
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+const wsStatus = document.getElementById("wsStatus");
+
+function connectWs() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => { wsStatus.textContent = "connected"; wsStatus.className = "status connected"; };
+  ws.onclose = () => {
+    wsStatus.textContent = "disconnected — retrying…"; wsStatus.className = "status disconnected";
+    setTimeout(connectWs, 2000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (event) => {
+    const m = JSON.parse(event.data);
+    allMessages.push(m);
+    while (allMessages.length > 1000) allMessages.shift();
+
+    if (!matchesFilter(m)) return;
+    const log = document.getElementById("log");
+    const emptyHint = log.querySelector(".empty-hint");
+    if (emptyHint) emptyHint.remove();
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.appendChild(buildLineEl(m));
+    while (log.children.length > 500) log.removeChild(log.firstChild);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  };
+}
+connectWs();
+
+document.getElementById("ttsToggle").addEventListener("change", async (e) => {
+  await fetch("/api/tts-toggle", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: e.target.checked }),
+  });
+  document.getElementById("ttsEnabled").checked = e.target.checked;
+});
+
+document.getElementById("ttsTest").addEventListener("click", async () => {
+  const btn = document.getElementById("ttsTest");
+  btn.textContent = "Sending…";
+  const res = await fetch("/api/tts-test", { method: "POST" });
+  const data = await res.json();
+  btn.textContent = data.ok ? "Sent ✓" : "Failed (see terminal)";
+  setTimeout(() => (btn.textContent = "Send test TTS"), 2000);
+});
+
+loadConfig();
+loadChannels();
+setInterval(loadChannels, 15000);
+</script>
+</body>
+</html>
