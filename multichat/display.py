@@ -6,7 +6,6 @@ import aiohttp
 from rich.console import Console
 
 from .models import ChatMessage
-from .streamerbot import StreamerBotRelay
 
 PLATFORM_STYLE = {
     "twitch": "bold magenta",
@@ -50,8 +49,11 @@ class TtsFilter:
         return True, text
 
 
-async def consume(queue: asyncio.Queue, tts_filter: TtsFilter, relay: StreamerBotRelay | None,
-                   hub=None):
+async def consume(queue: asyncio.Queue, hub):
+    """hub.tts_filter and hub.relay are read fresh on every message (not
+    captured once at startup), so changes made from the web UI -- TTS on/off,
+    mode, Streamer.bot host/port/action -- take effect on the very next
+    message, no restart needed."""
     console = Console()
     async with aiohttp.ClientSession() as session:
         while True:
@@ -66,10 +68,10 @@ async def consume(queue: asyncio.Queue, tts_filter: TtsFilter, relay: StreamerBo
                 f"[bold]{msg.username}[/bold]: {text}"
             )
 
-            if hub is not None:
-                await hub.broadcast(msg)
+            await hub.broadcast(msg)
 
+            relay = hub.relay
             if relay is not None:
-                speak, spoken_text = tts_filter.should_speak(text)
+                speak, spoken_text = hub.tts_filter.should_speak(text)
                 if speak:
                     await relay.speak(session, msg.username, spoken_text, msg.platform)

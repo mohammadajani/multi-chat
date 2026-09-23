@@ -42,6 +42,43 @@ class ChannelManager:
         for c in cfg.get("kick", {}).get("channels", []):
             self._register("kick", c)
 
+    def sync(self, cfg: dict) -> dict:
+        """Reconciles the running channels against a freshly-saved config, live
+        -- no restart needed. New channels get connected immediately, removed
+        ones get disconnected, and edits to a channel's id/slug are treated as
+        a new identity (old connection closed, new one opened), since that's
+        really a different channel as far as the platform is concerned.
+        Returns a small summary of what changed, for the save response.
+        """
+        self._youtube_api_key = cfg.get("youtube", {}).get("api_key", self._youtube_api_key)
+
+        new_keys: set[str] = set()
+        added: list[str] = []
+        for platform, section in (("twitch", "twitch"), ("youtube", "youtube"), ("kick", "kick")):
+            for c in cfg.get(section, {}).get("channels", []):
+                try:
+                    key = self.key_for(platform, c)
+                except (KeyError, ValueError):
+                    continue
+                new_keys.add(key)
+                if key in self._configs:
+                    self._configs[key] = {"platform": platform, **c}
+                    if c.get("enabled", True):
+                        self._start(key)  # no-op if already running
+                    else:
+                        self._stop(key)
+                else:
+                    self._register(platform, c)
+                    added.append(key)
+
+        removed = [k for k in list(self._configs) if k not in new_keys]
+        for key in removed:
+            self._stop(key)
+            self._configs.pop(key, None)
+            self._tasks.pop(key, None)
+
+        return {"added": added, "removed": removed}
+
     def _register(self, platform: str, cfg: dict):
         try:
             key = self.key_for(platform, cfg)

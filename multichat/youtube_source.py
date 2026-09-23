@@ -5,16 +5,29 @@ import aiohttp
 from .models import ChatMessage
 
 YT_API_BASE = "https://www.googleapis.com/youtube/v3"
+# The API's minimum page size (200-2000, default 500). We deliberately ask
+# for the smallest page: the very first page is discarded anyway (see
+# start_youtube_channel), and a smaller page means less to download/parse
+# each poll after that too.
+LIVE_CHAT_PAGE_SIZE = 200
 
 
 async def _find_live_chat_id(session: aiohttp.ClientSession, api_key: str,
-                              channel_id: str | None, video_id: str | None):
+                              channel_id: str | None, video_id: str | None, label: str):
     """Returns (video_id, live_chat_id) or (None, None) if nothing is live.
 
     If video_id is given directly, this only costs 1 quota unit (videos.list).
     If only channel_id is given, it first does a search.list call to find the
     live video, which costs 100 quota units -- fine occasionally, but avoid
     polling this in a tight loop.
+
+    A channel can technically have more than one "live" video at once (e.g. a
+    real broadcast running alongside a Premiere) -- search.list then returns
+    several candidates. order=date picks the one that started most recently,
+    which is right most of the time, but it's still a guess: if you know a
+    channel will have two broadcasts live simultaneously and want a specific
+    one, set "video_id" directly in its config instead of "channel_id" for
+    that channel -- that skips this guesswork entirely.
     """
     if not video_id and channel_id:
         params = {
@@ -22,6 +35,8 @@ async def _find_live_chat_id(session: aiohttp.ClientSession, api_key: str,
             "channelId": channel_id,
             "eventType": "live",
             "type": "video",
+            "order": "date",
+            "maxResults": 5,
             "key": api_key,
         }
         async with session.get(f"{YT_API_BASE}/search", params=params) as resp:
@@ -29,6 +44,10 @@ async def _find_live_chat_id(session: aiohttp.ClientSession, api_key: str,
         items = data.get("items", [])
         if not items:
             return None, None
+        if len(items) > 1:
+            print(f"[youtube:{label}] {len(items)} live videos found on this channel at once -- "
+                  f"picking the most recently started one. If that's the wrong one, set \"video_id\" "
+                  f"directly in config for this channel instead of \"channel_id\".")
         video_id = items[0]["id"]["videoId"]
 
     if not video_id:
@@ -60,7 +79,7 @@ async def start_youtube_channel(cfg: dict, api_key: str, queue: asyncio.Queue):
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                vid, chat_id = await _find_live_chat_id(session, api_key, channel_id, video_id)
+                vid, chat_id = await _find_live_chat_id(session, api_key, channel_id, video_id, label)
                 if not chat_id:
                     print(f"[youtube:{label}] not live yet, checking again in 60s")
                     await asyncio.sleep(60)
@@ -68,8 +87,20 @@ async def start_youtube_channel(cfg: dict, api_key: str, queue: asyncio.Queue):
 
                 print(f"[youtube:{label}] connected to live chat (video {vid})")
                 page_token = None
+                # YouTube's first response (no pageToken yet) contains whatever
+                # backlog is already buffered -- up to 500 messages by default,
+                # regardless of how long the stream's been running. We fetch it
+                # once purely to get a starting pageToken, but don't enqueue any
+                # of it, so joining a chat that's already busy doesn't dump a
+                # wall of old messages (and doesn't fire a burst of TTS calls).
+                skip_backlog = True
                 while True:
-                    params = {"liveChatId": chat_id, "part": "snippet,authorDetails", "key": api_key}
+                    params = {
+                        "liveChatId": chat_id,
+                        "part": "snippet,authorDetails",
+                        "maxResults": LIVE_CHAT_PAGE_SIZE,
+                        "key": api_key,
+                    }
                     if page_token:
                         params["pageToken"] = page_token
                     async with session.get(f"{YT_API_BASE}/liveChat/messages", params=params) as resp:
@@ -78,18 +109,21 @@ async def start_youtube_channel(cfg: dict, api_key: str, queue: asyncio.Queue):
                             break
                         data = await resp.json()
 
-                    for item in data.get("items", []):
-                        snippet = item.get("snippet", {})
-                        author = item.get("authorDetails", {})
-                        text = snippet.get("displayMessage", "")
-                        if not text:
-                            continue
-                        await queue.put(ChatMessage(
-                            platform="youtube",
-                            channel=label,
-                            username=author.get("displayName", "?"),
-                            text=text,
-                        ))
+                    if skip_backlog:
+                        skip_backlog = False
+                    else:
+                        for item in data.get("items", []):
+                            snippet = item.get("snippet", {})
+                            author = item.get("authorDetails", {})
+                            text = snippet.get("displayMessage", "")
+                            if not text:
+                                continue
+                            await queue.put(ChatMessage(
+                                platform="youtube",
+                                channel=label,
+                                username=author.get("displayName", "?"),
+                                text=text,
+                            ))
 
                     page_token = data.get("nextPageToken")
                     poll_seconds = max(data.get("pollingIntervalMillis", 5000), 2000) / 1000

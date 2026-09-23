@@ -117,6 +117,11 @@
   }
   #ovPreview { width: 100%; height: 100%; border: none; }
   input[type=range] { width: 100%; }
+  textarea {
+    width: 100%; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 10px; border-radius: 6px; font-size: 13px; font-family: ui-monospace, Consolas, monospace;
+    resize: vertical; line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -133,6 +138,11 @@
     <span>TTS enabled</span>
     <button id="ttsTest" type="button">Send test TTS</button>
     <span id="wsStatus" class="status">connecting…</span>
+  </div>
+  <div class="toolbar">
+    <label class="switch"><input type="checkbox" id="keepHistoryToggle"><span class="slider"></span></label>
+    <span>Keep history on refresh</span>
+    <span class="field-hint">(off by default — on remembers recent chat across page reloads)</span>
   </div>
   <div id="filterBar" class="filter-bar"></div>
   <div id="log" class="log"></div>
@@ -179,6 +189,24 @@
   <div id="ovPreviewFrame" style="margin-top:10px;">
     <iframe id="ovPreview" title="overlay preview"></iframe>
   </div>
+
+  <h2>Custom theme (optional)</h2>
+  <div class="field-hint">
+    Leave this off and the overlay uses the default look above. Turn it on to override it with
+    your own CSS — colors, fonts, spacing, even the entry/exit animations. Changes here reach
+    an already-open OBS Browser Source within about 10 seconds, no need to remove and re-add it.
+  </div>
+  <label style="margin-top:10px;"><input type="checkbox" id="themeEnabled"> Use custom CSS</label>
+  <textarea id="themeCss" rows="10" spellcheck="false"
+    placeholder="/* Selectors available: #stack, .msg, .badge, .badge.twitch/.youtube/.kick, .user, .text
+   Redefine @keyframes slideIn / fadeOut to change the entry/exit animation. Example:
+
+.msg { background: #1a1a2e; border-radius: 20px; font-family: 'Comic Sans MS', sans-serif; }
+.badge.twitch { background: #ff00ff; }
+@keyframes slideIn { from { opacity:0; transform: scale(0.5); } to { opacity:1; transform: scale(1); } }
+*/"></textarea>
+  <button type="button" id="themeSave" class="add-btn">Save theme</button>
+  <span id="themeSaveNote" class="field-hint"></span>
 </section>
 
 <section id="setup" class="tab-content">
@@ -200,9 +228,9 @@
     <button type="button" class="add-btn" data-list="kick">+ Add Kick channel</button>
 
     <div class="field-hint" style="margin-top:16px;">
-      The switch on each row turns that channel's connection on/off. For channels already
-      running, this takes effect immediately — no restart, no bandwidth spent while it's off.
-      Rows you just added need Save + a restart before their switch goes live.
+      The switch on each row turns that channel's connection on/off instantly. Adding a brand-new
+      row, removing one, or editing its ID/slug also applies as soon as you hit Save — no restart
+      needed for any of it anymore.
     </div>
 
     <h2>Streamer.bot (for TTS)</h2>
@@ -212,6 +240,13 @@
     <label>Action ID <span class="field-hint">(optional — use instead of name)</span>
       <input type="text" id="sbActionId">
     </label>
+    <button type="button" id="sbPing" class="add-btn" style="margin-top:8px;">Test connection</button>
+    <span id="sbPingNote" class="field-hint"></span>
+    <div class="field-hint" style="margin-top:6px;">
+      This only checks that something is listening on that host:port (i.e. Streamer.bot's HTTP
+      server is on and reachable) — it doesn't confirm the Action/Speak setup itself. For that,
+      save your settings and use "Send test TTS" on the Live Chat tab.
+    </div>
 
     <h2>TTS behavior</h2>
     <label><input type="checkbox" id="ttsEnabled"> Enabled</label>
@@ -226,6 +261,18 @@
     <label>Min length <input type="number" id="ttsMin"></label>
     <label>Max length <input type="number" id="ttsMax"></label>
     <label>Max TTS messages per 10 seconds <input type="number" id="ttsRate"></label>
+
+    <h2>Network access</h2>
+    <label>
+      <input type="checkbox" id="lanAccess"> Allow other devices on your network (phone, tablet) to open this dashboard
+    </label>
+    <div class="field-hint" style="color:var(--bad);">
+      Careful: anyone else on the same network could then view and change everything here too —
+      API keys, channels, TTS, all of it. Only enable this on a network you trust (like your home
+      WiFi), never on public WiFi. This needs a restart to take effect.
+    </div>
+    <label style="margin-top:10px;">Port <input type="number" id="webPort"></label>
+    <div id="networkInfoBox" class="field-hint" style="margin-top:8px;"></div>
 
     <button type="submit" class="save-btn">Save config</button>
     <span id="saveNote"></span>
@@ -390,6 +437,9 @@ async function loadConfig() {
   document.getElementById("sbActionName").value = cfg.streamerbot?.action_name || "";
   document.getElementById("sbActionId").value = cfg.streamerbot?.action_id || "";
 
+  document.getElementById("lanAccess").checked = (cfg.webui?.host === "0.0.0.0");
+  document.getElementById("webPort").value = cfg.webui?.port || 8765;
+
   const tts = cfg.tts || {};
   document.getElementById("ttsEnabled").checked = !!tts.enabled;
   document.getElementById("ttsToggle").checked = !!tts.enabled;
@@ -399,6 +449,25 @@ async function loadConfig() {
   document.getElementById("ttsMin").value = tts.min_length ?? 2;
   document.getElementById("ttsMax").value = tts.max_length ?? 200;
   document.getElementById("ttsRate").value = tts.max_per_10s ?? 5;
+}
+
+async function loadNetworkInfo() {
+  const res = await fetch("/api/network-info");
+  if (!res.ok) return;
+  const info = await res.json();
+  const box = document.getElementById("networkInfoBox");
+  const lines = [];
+  if (info.lan_access_live) {
+    lines.push(`Currently reachable from other devices at:`);
+    info.local_ips.forEach(ip => lines.push(`  http://${ip}:${info.bound_port}`));
+  } else {
+    lines.push(`Currently only reachable from this PC (http://127.0.0.1:${info.bound_port}).`);
+  }
+  if (info.configured_host !== info.bound_host || info.configured_port !== info.bound_port) {
+    lines.push(`Saved settings differ from what's running — restart to apply.`);
+  }
+  box.textContent = lines.join("\n");
+  box.style.whiteSpace = "pre-line";
 }
 
 document.getElementById("cfgForm").addEventListener("submit", async (e) => {
@@ -412,6 +481,10 @@ document.getElementById("cfgForm").addEventListener("submit", async (e) => {
       port: parseInt(document.getElementById("sbPort").value) || 7474,
       action_name: document.getElementById("sbActionName").value.trim() || null,
       action_id: document.getElementById("sbActionId").value.trim() || null,
+    },
+    webui: {
+      host: document.getElementById("lanAccess").checked ? "0.0.0.0" : "127.0.0.1",
+      port: parseInt(document.getElementById("webPort").value) || 8765,
     },
     tts: {
       enabled: document.getElementById("ttsEnabled").checked,
@@ -430,6 +503,7 @@ document.getElementById("cfgForm").addEventListener("submit", async (e) => {
   const note = document.getElementById("saveNote");
   note.textContent = data.error ? ("Error: " + data.error) : data.note;
   document.getElementById("ttsToggle").checked = cfg.tts.enabled;
+  loadNetworkInfo();
 });
 
 // ---------- channel list (for filter chips + setup row status) ----------
@@ -490,7 +564,7 @@ function buildLineEl(m) {
 function fullRerender() {
   const log = document.getElementById("log");
   log.innerHTML = "";
-  const visible = allMessages.filter(matchesFilter).slice(-500);
+  const visible = allMessages.filter(matchesFilter).slice(-300);
   if (!visible.length) {
     const hint = document.createElement("div");
     hint.className = "empty-hint";
@@ -503,31 +577,66 @@ function fullRerender() {
 }
 
 const wsStatus = document.getElementById("wsStatus");
+let activeWs = null;
+let manualWsClose = false;
+
+function keepHistoryEnabled() {
+  return localStorage.getItem("multichat_keepHistory") === "1";
+}
+
+function wsUrl() {
+  const proto = location.protocol === "https:" ? "wss://" : "ws://";
+  return `${proto}${location.host}/ws?replay=${keepHistoryEnabled() ? "1" : "0"}`;
+}
+
+function handleIncoming(m) {
+  allMessages.push(m);
+  while (allMessages.length > 300) allMessages.shift();
+
+  if (!matchesFilter(m)) return;
+  const log = document.getElementById("log");
+  const emptyHint = log.querySelector(".empty-hint");
+  if (emptyHint) emptyHint.remove();
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.appendChild(buildLineEl(m));
+  while (log.children.length > 300) log.removeChild(log.firstChild);
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
 
 function connectWs() {
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  const ws = new WebSocket(wsUrl());
+  activeWs = ws;
   ws.onopen = () => { wsStatus.textContent = "connected"; wsStatus.className = "status connected"; };
   ws.onclose = () => {
+    if (manualWsClose) { manualWsClose = false; return; }
     wsStatus.textContent = "disconnected — retrying…"; wsStatus.className = "status disconnected";
     setTimeout(connectWs, 2000);
   };
   ws.onerror = () => ws.close();
   ws.onmessage = (event) => {
-    const m = JSON.parse(event.data);
-    allMessages.push(m);
-    while (allMessages.length > 1000) allMessages.shift();
-
-    if (!matchesFilter(m)) return;
-    const log = document.getElementById("log");
-    const emptyHint = log.querySelector(".empty-hint");
-    if (emptyHint) emptyHint.remove();
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-    log.appendChild(buildLineEl(m));
-    while (log.children.length > 500) log.removeChild(log.firstChild);
-    if (atBottom) log.scrollTop = log.scrollHeight;
+    const data = JSON.parse(event.data);
+    if (data.type === "history") {
+      data.items.forEach(item => {
+        allMessages.push(item);
+        while (allMessages.length > 300) allMessages.shift();
+      });
+      fullRerender(); // one redraw for the whole backlog, not one per item
+      return;
+    }
+    handleIncoming(data);
   };
 }
 connectWs();
+
+document.getElementById("keepHistoryToggle").checked = keepHistoryEnabled();
+document.getElementById("keepHistoryToggle").addEventListener("change", (e) => {
+  localStorage.setItem("multichat_keepHistory", e.target.checked ? "1" : "0");
+  manualWsClose = true;
+  if (activeWs) activeWs.close();
+  allMessages = [];
+  fullRerender();
+  connectWs();
+});
 
 document.getElementById("ttsToggle").addEventListener("change", async (e) => {
   await fetch("/api/tts-toggle", {
@@ -607,8 +716,55 @@ document.getElementById("ovTestMsg").addEventListener("click", async () => {
   setTimeout(() => (btn.textContent = "Send test message"), 1500);
 });
 
+// ---------- Custom overlay theme ----------
+
+async function loadOverlayTheme() {
+  const res = await fetch("/api/overlay-theme");
+  if (!res.ok) return;
+  const theme = await res.json();
+  document.getElementById("themeEnabled").checked = !!theme.enabled;
+  document.getElementById("themeCss").value = theme.css || "";
+}
+
+document.getElementById("themeSave").addEventListener("click", async () => {
+  const btn = document.getElementById("themeSave");
+  const note = document.getElementById("themeSaveNote");
+  btn.textContent = "Saving…";
+  const res = await fetch("/api/overlay-theme", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      enabled: document.getElementById("themeEnabled").checked,
+      css: document.getElementById("themeCss").value,
+    }),
+  });
+  btn.textContent = "Save theme";
+  note.textContent = res.ok ? "Saved — the overlay will pick it up within ~10s." : "Save failed.";
+  setTimeout(() => (note.textContent = ""), 3000);
+});
+
+// ---------- Streamer.bot connectivity test ----------
+
+document.getElementById("sbPing").addEventListener("click", async () => {
+  const btn = document.getElementById("sbPing");
+  const note = document.getElementById("sbPingNote");
+  btn.textContent = "Testing…";
+  note.textContent = "";
+  try {
+    const res = await fetch("/api/streamerbot-ping");
+    const data = await res.json();
+    note.textContent = data.reachable
+      ? `Reachable (HTTP ${data.status}) — Streamer.bot's HTTP server is on and listening there.`
+      : `Not reachable: ${data.error || "no response"}. Check the host/port and that Streamer.bot's HTTP server is enabled.`;
+  } catch (e) {
+    note.textContent = "Test failed to run.";
+  }
+  btn.textContent = "Test connection";
+});
+
 loadConfig();
 loadChannels();
+loadOverlayTheme();
+loadNetworkInfo();
 refreshOverlayControls();
 setInterval(loadChannels, 15000);
 </script>

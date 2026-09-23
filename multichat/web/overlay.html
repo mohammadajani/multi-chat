@@ -93,7 +93,28 @@ function playNotification() {
 // --- rendering ---
 const stack = document.getElementById("stack");
 
-function addMessage(m) {
+// --- custom theme (optional, set from the dashboard's Overlay tab) ---
+const themeStyleEl = document.createElement("style");
+themeStyleEl.id = "customTheme";
+document.head.appendChild(themeStyleEl);
+let lastCss = null;
+
+async function refreshTheme() {
+  try {
+    const res = await fetch("/api/overlay-theme");
+    if (!res.ok) return;
+    const theme = await res.json();
+    const css = (theme.enabled && theme.css) ? theme.css : "";
+    if (css !== lastCss) {
+      themeStyleEl.textContent = css;
+      lastCss = css;
+    }
+  } catch (e) { /* dashboard/server not reachable -- keep default look */ }
+}
+refreshTheme();
+setInterval(refreshTheme, 10000);
+
+function addMessage(m, opts = {}) {
   const el = document.createElement("div");
   el.className = "msg";
   el.innerHTML =
@@ -101,7 +122,7 @@ function addMessage(m) {
     `<span class="user">${escapeHtml(m.username)}:</span>` +
     `<span class="text">${escapeHtml(m.text)}</span>`;
   stack.appendChild(el);
-  playNotification();
+  if (!opts.silent) playNotification();
 
   while (stack.children.length > maxVisible) {
     stack.removeChild(stack.firstChild);
@@ -115,11 +136,20 @@ function addMessage(m) {
   }
 }
 
+// Off by default (a fresh OBS Browser Source shouldn't replay + re-voice a
+// pile of old messages). Power users can opt in with &replay=1 in the URL.
+const replay = params.get("replay") === "1";
+
 function connect() {
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") +
+    location.host + "/ws?replay=" + (replay ? "1" : "0"));
   ws.onmessage = (event) => {
-    const m = JSON.parse(event.data);
-    if (matchesFilter(m)) addMessage(m);
+    const data = JSON.parse(event.data);
+    if (data.type === "history") {
+      data.items.filter(matchesFilter).forEach(item => addMessage(item, { silent: true }));
+      return;
+    }
+    if (matchesFilter(data)) addMessage(data);
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
